@@ -48,9 +48,13 @@ async def incidents(active_only: bool = False):
 
 
 @app.get("/api/transactions/recent")
-async def recent_transactions(limit: int = 50):
+async def recent_transactions(limit: int = 50, channel: str | None = None, status: str | None = None):
     latest_by_id: dict[str, dict] = {}
     for event in state.transactions:
+        if channel is not None and event["channel"] != channel:
+            continue
+        if status is not None and event["status"] != status:
+            continue
         latest_by_id[event["id"]] = event
     ordered = sorted(
         latest_by_id.values(),
