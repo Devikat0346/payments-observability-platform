@@ -3,7 +3,7 @@
 A synthetic multi-channel payments processor with a live SRE-style observability layer on top: SLIs, SLOs, and error-budget burn, computed in real time from simulated credit, debit, and wire traffic across both real-time and batch origination rails.
 
 **Live demo:** https://payments-observability-platform.vercel.app
-**API:** https://payments-observability-api.fly.dev/api/health
+**API:** https://payments-observability-api.onrender.com/api/health
 
 ## Why this exists
 
@@ -54,11 +54,12 @@ Each channel has its own latency distribution, baseline decline/return rate, and
 
 - **Backend:** Python 3.12, FastAPI, asyncio, uvicorn, plain WebSocket (no external broker)
 - **Frontend:** Next.js 16 (App Router), TypeScript, Tailwind CSS, Recharts
-- **Deploy:** Fly.io (backend, single machine — see below), Vercel (frontend)
+- **Deploy:** Render (backend, single free-tier web service — see below), Vercel (frontend)
 
 ## Design decisions
 
-- **Single-instance, in-memory state.** All transaction and metrics state lives in one process's memory rather than Postgres/Redis. This keeps the demo simple and fast to run, but it's a deliberate scoping choice, not an oversight — the backend is pinned to exactly one Fly machine (`fly scale count 1`) because horizontally scaling it as-is would give each replica a different view of "recent" transactions. A production version would move transaction state to a shared store (e.g. Postgres for durability, Redis for the rolling metrics windows) before scaling out.
+- **Single-instance, in-memory state.** All transaction and metrics state lives in one process's memory rather than Postgres/Redis. This keeps the demo simple and fast to run, but it's a deliberate scoping choice, not an oversight — the backend runs as exactly one instance because horizontally scaling it as-is would give each replica a different view of "recent" transactions. A production version would move transaction state to a shared store (e.g. Postgres for durability, Redis for the rolling metrics windows) before scaling out.
+- **Why Render, not Fly.io.** This was originally deployed on Fly.io; its free trial later expired and started requiring a credit card to keep machines running, which conflicted with a hard no-billing constraint for this project. Migrated to Render's free web-service tier instead — the trade-off is that free Render services sleep after ~15 minutes idle and take 30-60s to wake on the next request.
 - **Compressed time windows.** Real SLO error budgets are typically tracked over 30-day windows; this demo uses 30 minutes so the burn-rate behavior is visible in a single sitting instead of a month.
 - **Snapshot-per-event, not a mutable object.** Each transaction status transition (initiated → authorized → settled, etc.) is stored as an immutable dict snapshot rather than mutating one shared object in place — otherwise every historical reference to a transaction would silently reflect its *current* state instead of the state at that point in time, which would quietly corrupt the metrics history.
 
