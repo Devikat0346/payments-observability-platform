@@ -2,7 +2,7 @@
 
 A synthetic multi-channel payments processor with a live SRE-style observability layer on top: SLIs, SLOs, and error-budget burn, computed in real time from simulated credit, debit, and wire traffic across both real-time and batch origination rails.
 
-**Live demo:** https://payments-observability-platform.vercel.app
+**Live demo:** https://payments-platform-theta.vercel.app/observability (part of the unified [Payments Platform](https://github.com/Devikat0346/payments-platform); this backend's original standalone frontend is still up at https://payments-observability-platform.vercel.app)
 **API:** https://payments-observability-api.onrender.com/api/health
 
 ## Why this exists
