@@ -2,7 +2,7 @@
 
 A synthetic multi-channel payments processor with a live SRE-style observability layer on top: SLIs, SLOs, and error-budget burn, computed in real time from simulated credit, debit, and wire traffic across both real-time and batch origination rails.
 
-**Live demo:** https://payments-platform-theta.vercel.app/observability (part of the unified [Payments Platform](https://github.com/Devikat0346/payments-platform); this backend's original standalone frontend is still up at https://payments-observability-platform.vercel.app)
+**Live demo:** https://payments-platform-theta.vercel.app/observability (part of the unified [Payments Platform](https://github.com/Devikat0346/payments-platform) — this repo is backend-only; its original standalone frontend was retired once the unified one shipped)
 **API:** https://payments-observability-api.onrender.com/api/health
 
 ## Why this exists
@@ -53,8 +53,7 @@ Each channel has its own latency distribution, baseline decline/return rate, and
 ## Tech stack
 
 - **Backend:** Python 3.12, FastAPI, asyncio, uvicorn, plain WebSocket (no external broker)
-- **Frontend:** Next.js 16 (App Router), TypeScript, Tailwind CSS, Recharts
-- **Deploy:** Render (backend, single free-tier web service — see below), Vercel (frontend)
+- **Deploy:** Render, single free-tier web service (see below). The frontend lives in the separate [payments-platform](https://github.com/Devikat0346/payments-platform) repo, deployed on Vercel.
 
 ## Design decisions
 
@@ -65,7 +64,6 @@ Each channel has its own latency distribution, baseline decline/return rate, and
 
 ## Running locally
 
-**Backend:**
 ```bash
 cd backend
 python3.12 -m venv venv
@@ -73,13 +71,7 @@ python3.12 -m venv venv
 ./venv/bin/uvicorn app.main:app --port 8000
 ```
 
-**Frontend:**
-```bash
-cd frontend
-npm install
-# .env.local: NEXT_PUBLIC_API_URL=http://localhost:8000, NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/live
-npm run dev
-```
+To see it rendered, run the [payments-platform](https://github.com/Devikat0346/payments-platform) frontend locally against this backend (point its `NEXT_PUBLIC_OBSERVABILITY_API_URL`/`_WS_URL` at `http://localhost:8000` / `ws://localhost:8000/ws/live`).
 
 ## What's next
 
