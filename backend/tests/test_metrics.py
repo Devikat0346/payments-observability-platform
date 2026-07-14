@@ -129,6 +129,28 @@ class TestComputeSummary:
         summary = compute_summary(state)
         assert summary["channels"]["pos"]["health"] == "breached"
 
+    def test_mixed_type_channels_get_a_within_channel_breakdown(self):
+        state = AppState()
+        state.transactions.append(
+            _event(channel="ach_batch_file", rail="ACH_BATCH", txn_type="credit", status="posted", amount=500.0, seconds_ago=1)
+        )
+        state.transactions.append(
+            _event(channel="ach_batch_file", rail="ACH_BATCH", txn_type="debit", status="returned", amount=200.0, seconds_ago=1)
+        )
+        summary = compute_summary(state)
+        breakdown = summary["channels"]["ach_batch_file"]["txn_type_breakdown"]
+        assert breakdown is not None
+        assert breakdown["credit"]["total"] == 1
+        assert breakdown["credit"]["total_amount"] == 500.0
+        assert breakdown["debit"]["total"] == 1
+        assert breakdown["debit"]["total_amount"] == 200.0
+
+    def test_single_type_channels_have_no_breakdown(self):
+        state = AppState()
+        summary = compute_summary(state)
+        assert summary["channels"]["wire_online"]["txn_type_breakdown"] is None
+        assert summary["channels"]["zelle_mobile"]["txn_type_breakdown"] is None
+
     def test_card_credit_and_ach_credit_are_not_conflated(self):
         # A card credit and an ACH credit are different payment mechanisms that
         # happen to share the word "credit" — they must not be summed together.

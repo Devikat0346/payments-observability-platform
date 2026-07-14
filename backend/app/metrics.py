@@ -77,6 +77,21 @@ def compute_summary(state: AppState) -> dict:
         if stats["success_rate"] is not None and stats["success_rate"] < slo["success_rate"] * 0.9:
             health = "breached"
 
+        # Channels whose transactions can be either credit or debit (card and ACH
+        # channels) get their own within-channel split, so a single channel card
+        # can show "this channel's volume is X% credit / Y% debit" rather than
+        # only being visible in the platform-wide type-mix rollup below.
+        txn_type_breakdown = None
+        if ch in config.TXN_TYPE_MIX:
+            txn_type_breakdown = {}
+            for txn_type in config.TXN_TYPE_MIX[ch]:
+                tt_events = [e for e in ch_window if e["txn_type"] == txn_type]
+                tt_stats = _channel_stats(tt_events)
+                txn_type_breakdown[txn_type] = {
+                    "total": tt_stats["total"],
+                    "total_amount": tt_stats["total_amount"],
+                }
+
         channel_metrics[ch] = {
             "channel": ch,
             "rail": rail,
@@ -87,6 +102,7 @@ def compute_summary(state: AppState) -> dict:
             "slo_latency_p99_ms": slo["latency_p99_ms"],
             "error_budget_burn_pct": round(burn_pct, 1),
             "active_incident": incident.to_dict() if incident else None,
+            "txn_type_breakdown": txn_type_breakdown,
         }
 
     rail_rollup = {}
