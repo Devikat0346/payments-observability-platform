@@ -130,6 +130,13 @@ def compute_summary(state: AppState) -> dict:
             "error_budget_burn_pct": round(burn_pct, 1),
             "availability_slo_target": config.AVAILABILITY_SLO_TARGET,
             "availability_burn_pct": round(availability_burn_pct, 1),
+            # Raw counts from the SAME (30m budget) window availability_burn_pct
+            # is computed over — deliberately not the 5m window's counts above,
+            # since a single rare technical failure can burn hundreds of times
+            # the five-nines budget, and showing the count from a mismatched
+            # window would make that number impossible to sanity-check.
+            "availability_budget_window_technical_failures": budget_stats["technical_failures"],
+            "availability_budget_window_total": budget_stats["total"],
             "active_incident": incident.to_dict() if incident else None,
             "txn_type_breakdown": txn_type_breakdown,
         }

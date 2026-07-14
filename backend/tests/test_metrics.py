@@ -161,6 +161,23 @@ class TestComputeSummary:
         assert summary["channels"]["ach_batch_file"]["availability_burn_pct"] == 0.0
         assert summary["channels"]["ach_batch_file"]["availability"] == 1.0
 
+    def test_availability_budget_window_counts_use_the_30m_window_not_5m(self):
+        # An event 10 minutes ago is inside the 30-minute error-budget window
+        # but outside the 5-minute SLI window — the raw counts shown next to
+        # availability_burn_pct must come from the same window the burn
+        # percentage itself is computed over, or the count wouldn't explain
+        # the number next to it.
+        state = AppState()
+        state.transactions.append(
+            _event(channel="pos", status="failed", technical_failure_reason="internal_error", seconds_ago=600)
+        )
+        summary = compute_summary(state)
+        metric = summary["channels"]["pos"]
+        assert metric["total"] == 0  # outside the 5m window
+        assert metric["availability_budget_window_total"] == 1  # inside the 30m window
+        assert metric["availability_budget_window_technical_failures"] == 1
+        assert metric["availability_burn_pct"] > 0
+
     def test_events_outside_window_are_excluded(self):
         state = AppState()
         state.transactions.append(_event(seconds_ago=10_000))  # ancient, outside every window
