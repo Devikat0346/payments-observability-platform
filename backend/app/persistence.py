@@ -58,7 +58,18 @@ class TransactionStore:
         self._lock = asyncio.Lock()
         self._flush_task: asyncio.Task | None = None
         if self.enabled:
-            self._engine = create_async_engine(database_url, pool_size=3, max_overflow=2)
+            self._engine = create_async_engine(
+                database_url,
+                pool_size=3,
+                max_overflow=2,
+                # Harmless on a direct/session connection; required if this
+                # ever points at Supabase's transaction-mode pooler, which
+                # doesn't support prepared statements — asyncpg's statement
+                # cache would otherwise intermittently raise
+                # DuplicatePreparedStatementError as pgbouncer reassigns the
+                # underlying backend connection between statements.
+                connect_args={"statement_cache_size": 0},
+            )
             self._sessionmaker = async_sessionmaker(self._engine, expire_on_commit=False)
 
     async def start(self) -> None:
