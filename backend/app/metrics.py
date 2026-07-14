@@ -100,11 +100,27 @@ def compute_summary(state: AppState) -> dict:
             "slo_success_rate": config.SLO_TARGETS[rail]["success_rate"],
         }
 
+    # "Credit" and "debit" mean genuinely different things on the card network vs.
+    # the ACH network (an ACH credit is a deposit, e.g. payroll; an ACH debit is a
+    # pull, e.g. bill pay) — they aren't the same category of money movement just
+    # because they share a word. Keying by (rail, txn_type) instead of txn_type
+    # alone keeps a card credit and an ACH credit from being silently summed
+    # together into one misleading "Credit" bucket.
+    TXN_TYPE_BREAKDOWN = [
+        ("card_credit", "CARD", "credit"),
+        ("card_debit", "CARD", "debit"),
+        ("ach_credit", "ACH_BATCH", "credit"),
+        ("ach_debit", "ACH_BATCH", "debit"),
+        ("wire", "WIRE", "wire"),
+        ("zelle", "ZELLE", "zelle"),
+    ]
     txn_type_rollup = {}
-    for txn_type in ("credit", "debit", "wire", "zelle"):
-        type_events = [e for e in window_events if e["txn_type"] == txn_type]
+    for key, rail, txn_type in TXN_TYPE_BREAKDOWN:
+        type_events = [
+            e for e in window_events if e["rail"] == rail and e["txn_type"] == txn_type
+        ]
         stats = _channel_stats(type_events)
-        txn_type_rollup[txn_type] = {"txn_type": txn_type, **stats}
+        txn_type_rollup[key] = {"txn_type": key, "rail": rail, **stats}
 
     return {
         "generated_at": now.isoformat(),

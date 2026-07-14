@@ -11,11 +11,12 @@ def _event(
     txn_type="debit",
     amount=50.0,
     seconds_ago=0,
+    rail="CARD",
 ):
     ts = datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
     return {
         "id": "fake-id",
-        "rail": "CARD",
+        "rail": rail,
         "channel": channel,
         "txn_type": txn_type,
         "amount": amount,
@@ -94,7 +95,14 @@ class TestComputeSummary:
         assert "rails" in summary
         assert "txn_types" in summary
         assert set(summary["rails"].keys()) == {"CARD", "WIRE", "ACH_BATCH", "ZELLE"}
-        assert set(summary["txn_types"].keys()) == {"credit", "debit", "wire", "zelle"}
+        assert set(summary["txn_types"].keys()) == {
+            "card_credit",
+            "card_debit",
+            "ach_credit",
+            "ach_debit",
+            "wire",
+            "zelle",
+        }
         for ch, metric in summary["channels"].items():
             assert metric["health"] in ("healthy", "degraded", "breached")
             assert metric["total"] == 0
@@ -120,3 +128,17 @@ class TestComputeSummary:
             state.transactions.append(_event(channel="pos", status="declined", seconds_ago=1))
         summary = compute_summary(state)
         assert summary["channels"]["pos"]["health"] == "breached"
+
+    def test_card_credit_and_ach_credit_are_not_conflated(self):
+        # A card credit and an ACH credit are different payment mechanisms that
+        # happen to share the word "credit" — they must not be summed together.
+        state = AppState()
+        state.transactions.append(
+            _event(channel="ecommerce", rail="CARD", txn_type="credit", amount=100.0, seconds_ago=1)
+        )
+        state.transactions.append(
+            _event(channel="ach_batch_file", rail="ACH_BATCH", txn_type="credit", amount=9999.0, seconds_ago=1)
+        )
+        summary = compute_summary(state)
+        assert summary["txn_types"]["card_credit"]["total_amount"] == 100.0
+        assert summary["txn_types"]["ach_credit"]["total_amount"] == 9999.0
