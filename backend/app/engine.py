@@ -149,9 +149,18 @@ class SimulationEngine:
                     txn.batch_id = batch_id
                     txn.updated_at = datetime.now(timezone.utc)
                     if file_rejected:
+                        # A whole-file rejection (format/validation errors in
+                        # the submitted file) is a business/operational
+                        # exception, not a system outage — it counts against
+                        # the approval-rate SLO via return_code, same as any
+                        # other return, but deliberately does NOT set
+                        # technical_failure_reason: a 3%-per-run rejection
+                        # rate is nowhere close to compatible with a
+                        # five-nines *availability* target, and conflating
+                        # the two made the availability metric meaningless
+                        # for batch channels.
                         txn.status = "failed"
                         txn.return_code = "FILE_REJECTED"
-                        txn.technical_failure_reason = "file_rejected"
                     else:
                         base_fail = config.BASE_FAILURE_RATE[channel] * fail_mult
                         if random.random() < min(base_fail, 0.95):

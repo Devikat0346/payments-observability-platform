@@ -12,6 +12,7 @@ def _event(
     amount=50.0,
     seconds_ago=0,
     rail="CARD",
+    technical_failure_reason=None,
 ):
     ts = datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
     return {
@@ -28,7 +29,7 @@ def _event(
         "batch_id": None,
         "decline_reason": None,
         "return_code": None,
-        "technical_failure_reason": None,
+        "technical_failure_reason": technical_failure_reason,
     }
 
 
@@ -88,18 +89,22 @@ class TestChannelStats:
         assert stats["total"] == 3
 
     def test_technical_failures_are_a_subset_of_business_failures(self):
-        # A business decline (system worked, said no) and a technical failure
-        # (system never responded) are both "not a success", but availability
-        # only cares about the technical one.
+        # A business decline, a rejected batch file, and a genuine technical
+        # failure are all "not a success" (count against success_rate), but
+        # availability only cares about the genuinely technical one — keyed on
+        # technical_failure_reason, not the "failed" status alone, since a
+        # rejected file also uses status "failed" but is a business/
+        # operational exception, not an availability miss.
         events = [
             _event(status="settled"),
             _event(status="declined"),  # business — availability shouldn't count this
-            _event(status="failed"),  # technical — availability SHOULD count this
+            _event(status="failed"),  # a rejected batch file — business, not technical
+            _event(status="failed", technical_failure_reason="gateway_timeout"),  # genuinely technical
         ]
         stats = _channel_stats(events)
-        assert stats["failure"] == 2  # declined + failed both count against success_rate
-        assert stats["technical_failures"] == 1  # only "failed" counts against availability
-        assert stats["availability"] == 2 / 3
+        assert stats["failure"] == 3  # declined + both "failed" events count against success_rate
+        assert stats["technical_failures"] == 1  # only the one WITH a technical_failure_reason
+        assert stats["availability"] == 3 / 4
 
     def test_availability_is_none_with_no_terminal_events(self):
         stats = _channel_stats([_event(status="initiated")])
@@ -138,9 +143,23 @@ class TestComputeSummary:
         assert summary["channels"]["pos"]["availability_burn_pct"] == 0.0
         # ...but even a single technical failure burns a large chunk of the
         # five-nines budget, since that budget is extremely small by design.
-        state.transactions.append(_event(channel="pos", status="failed", seconds_ago=1))
+        state.transactions.append(
+            _event(channel="pos", status="failed", technical_failure_reason="gateway_timeout", seconds_ago=1)
+        )
         summary = compute_summary(state)
         assert summary["channels"]["pos"]["availability_burn_pct"] > 0.0
+
+    def test_rejected_batch_file_does_not_count_against_availability(self):
+        # A whole-file rejection uses status "failed" (same as a genuine
+        # technical failure) but represents a business/format exception, not
+        # an outage — it must not set technical_failure_reason, and therefore
+        # must not burn the five-nines availability budget at all.
+        state = AppState()
+        for _ in range(10):
+            state.transactions.append(_event(channel="ach_batch_file", rail="ACH_BATCH", status="failed", seconds_ago=1))
+        summary = compute_summary(state)
+        assert summary["channels"]["ach_batch_file"]["availability_burn_pct"] == 0.0
+        assert summary["channels"]["ach_batch_file"]["availability"] == 1.0
 
     def test_events_outside_window_are_excluded(self):
         state = AppState()

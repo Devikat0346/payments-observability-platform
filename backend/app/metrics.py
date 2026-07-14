@@ -27,11 +27,15 @@ def _channel_stats(events: list[dict]) -> dict:
     latencies = sorted(e["auth_latency_ms"] for e in events if e.get("auth_latency_ms") is not None)
     total_amount = sum(e["amount"] for e in events)
     failure_amount = sum(e["amount"] for e in events if e["status"] in TERMINAL_FAILURE)
-    # A technical failure ("failed") means the platform never returned a
-    # decision at all — distinct from "declined"/"returned", where the
-    # platform worked correctly and said no for a business reason. Only
-    # technical failures count against availability.
-    technical_failures = sum(1 for e in events if e["status"] == "failed")
+    # A technical failure means the platform never returned a decision at all
+    # — distinct from "declined"/"returned"/a rejected batch file, where the
+    # platform worked correctly and said no for a business reason. Deliberately
+    # keyed on technical_failure_reason rather than status == "failed": a
+    # whole-file rejection also uses status "failed" (it's still "not a
+    # success" for approval-rate purposes) but is a business/operational
+    # exception, not an availability miss, so it does NOT set
+    # technical_failure_reason and must not count here.
+    technical_failures = sum(1 for e in events if e.get("technical_failure_reason") is not None)
     availability = ((total - technical_failures) / total) if total else None
     return {
         "total": total,
