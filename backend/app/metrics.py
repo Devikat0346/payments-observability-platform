@@ -25,6 +25,8 @@ def _channel_stats(events: list[dict]) -> dict:
     failure = sum(1 for e in events if e["status"] in TERMINAL_FAILURE)
     total = success + failure
     latencies = sorted(e["auth_latency_ms"] for e in events if e.get("auth_latency_ms") is not None)
+    total_amount = sum(e["amount"] for e in events)
+    failure_amount = sum(e["amount"] for e in events if e["status"] in TERMINAL_FAILURE)
     return {
         "total": total,
         "success": success,
@@ -33,6 +35,8 @@ def _channel_stats(events: list[dict]) -> dict:
         "p50_latency_ms": _percentile(latencies, 0.50),
         "p95_latency_ms": _percentile(latencies, 0.95),
         "p99_latency_ms": _percentile(latencies, 0.99),
+        "total_amount": round(total_amount, 2),
+        "failure_amount": round(failure_amount, 2),
     }
 
 
