@@ -86,7 +86,7 @@ def compute_summary(state: AppState) -> dict:
         }
 
     rail_rollup = {}
-    for rail in ("CARD", "WIRE", "ACH_BATCH"):
+    for rail in ("CARD", "WIRE", "ACH_BATCH", "ZELLE"):
         rail_channels = [c for c in channels if CHANNEL_RAIL[c] == rail]
         rail_events = [e for e in window_events if e["channel"] in rail_channels]
         stats = _channel_stats(rail_events)
@@ -96,8 +96,15 @@ def compute_summary(state: AppState) -> dict:
             "slo_success_rate": config.SLO_TARGETS[rail]["success_rate"],
         }
 
+    txn_type_rollup = {}
+    for txn_type in ("credit", "debit", "wire", "zelle"):
+        type_events = [e for e in window_events if e["txn_type"] == txn_type]
+        stats = _channel_stats(type_events)
+        txn_type_rollup[txn_type] = {"txn_type": txn_type, **stats}
+
     return {
         "generated_at": now.isoformat(),
         "channels": channel_metrics,
         "rails": rail_rollup,
+        "txn_types": txn_type_rollup,
     }

@@ -5,16 +5,21 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-Rail = Literal["CARD", "WIRE", "ACH_BATCH"]
+Rail = Literal["CARD", "WIRE", "ACH_BATCH", "ZELLE"]
 Channel = Literal[
     "pos",
     "ecommerce",
     "mobile_wallet",
     "wire_online",
     "wire_branch",
+    "wire_loaniq",
+    "wire_batch",
+    "wire_ivr",
     "ach_batch_file",
+    "zelle_mobile",
+    "zelle_online",
 ]
-TxnType = Literal["credit", "debit", "wire"]
+TxnType = Literal["credit", "debit", "wire", "zelle"]
 Status = Literal[
     "initiated",
     "authorized",
@@ -36,16 +41,12 @@ CHANNEL_RAIL: dict[Channel, Rail] = {
     "mobile_wallet": "CARD",
     "wire_online": "WIRE",
     "wire_branch": "WIRE",
+    "wire_loaniq": "WIRE",
+    "wire_batch": "WIRE",
+    "wire_ivr": "WIRE",
     "ach_batch_file": "ACH_BATCH",
-}
-
-CHANNEL_TXN_TYPE: dict[Channel, TxnType] = {
-    "pos": "debit",
-    "ecommerce": "credit",
-    "mobile_wallet": "credit",
-    "wire_online": "wire",
-    "wire_branch": "wire",
-    "ach_batch_file": "debit",
+    "zelle_mobile": "ZELLE",
+    "zelle_online": "ZELLE",
 }
 
 
@@ -66,13 +67,13 @@ class Transaction:
     return_code: Optional[str] = None
 
     @staticmethod
-    def new(channel: Channel, amount: float) -> "Transaction":
+    def new(channel: Channel, txn_type: TxnType, amount: float) -> "Transaction":
         ts = now()
         return Transaction(
             id=str(uuid.uuid4()),
             rail=CHANNEL_RAIL[channel],
             channel=channel,
-            txn_type=CHANNEL_TXN_TYPE[channel],
+            txn_type=txn_type,
             amount=amount,
             status="initiated",
             created_at=ts,

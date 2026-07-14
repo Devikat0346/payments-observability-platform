@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app import config, metrics
-from app.models import CHANNEL_RAIL, Channel, Incident, Transaction
+from app.models import CHANNEL_RAIL, Channel, Incident, Transaction, TxnType
 from app.state import AppState
 
 METRICS_TICK_SECONDS = 2.0
@@ -14,6 +14,15 @@ def _pick_channel() -> Channel:
     channels = list(config.CHANNEL_WEIGHTS.keys())
     weights = list(config.CHANNEL_WEIGHTS.values())
     return random.choices(channels, weights=weights, k=1)[0]
+
+
+def _sample_txn_type(channel: Channel) -> TxnType:
+    mix = config.TXN_TYPE_MIX.get(channel)
+    if mix:
+        types = list(mix.keys())
+        weights = list(mix.values())
+        return random.choices(types, weights=weights, k=1)[0]
+    return "zelle" if CHANNEL_RAIL[channel] == "ZELLE" else "wire"
 
 
 def _sample_latency_ms(channel: Channel) -> float:
@@ -34,7 +43,9 @@ def _sample_amount(channel: Channel) -> float:
 class SimulationEngine:
     def __init__(self, state: AppState) -> None:
         self.state = state
-        self._batch_queue: dict[Channel, list[Transaction]] = {"ach_batch_file": []}
+        self._batch_queue: dict[Channel, list[Transaction]] = {
+            ch: [] for ch in config.BATCH_CHANNELS
+        }
         self._tasks: list[asyncio.Task] = []
 
     def start(self) -> None:
@@ -65,8 +76,9 @@ class SimulationEngine:
         while True:
             await asyncio.sleep(1.0 / config.GENERATION_RATE_PER_SEC)
             channel = _pick_channel()
-            txn = Transaction.new(channel, _sample_amount(channel))
-            if channel == "ach_batch_file":
+            txn_type = _sample_txn_type(channel)
+            txn = Transaction.new(channel, txn_type, _sample_amount(channel))
+            if channel in config.BATCH_CHANNELS:
                 self._batch_queue.setdefault(channel, []).append(txn)
                 await self.state.add_transaction(txn)
             else:
@@ -84,7 +96,7 @@ class SimulationEngine:
         txn.updated_at = datetime.now(timezone.utc)
         if failed:
             txn.status = "declined"
-            txn.decline_reason = random.choice(config.DECLINE_REASONS)
+            txn.decline_reason = random.choice(config.CHANNEL_DECLINE_REASONS[channel])
             await self.state.add_transaction(txn)
             return
 
@@ -101,29 +113,30 @@ class SimulationEngine:
     async def _batch_loop(self) -> None:
         while True:
             await asyncio.sleep(config.BATCH_WINDOW_SECONDS)
-            pending = self._batch_queue.get("ach_batch_file", [])
-            if not pending:
-                continue
-            self._batch_queue["ach_batch_file"] = []
-            batch_id = f"batch-{uuid.uuid4().hex[:8]}"
+            for channel in list(self._batch_queue.keys()):
+                pending = self._batch_queue.get(channel, [])
+                if not pending:
+                    continue
+                self._batch_queue[channel] = []
+                batch_id = f"batch-{uuid.uuid4().hex[:8]}"
 
-            file_rejected = random.random() < config.BATCH_FILE_REJECT_PROB
-            fail_mult = self._failure_multiplier("ach_batch_file")
+                file_rejected = random.random() < config.BATCH_FILE_REJECT_PROB
+                fail_mult = self._failure_multiplier(channel)
 
-            for txn in pending:
-                txn.batch_id = batch_id
-                txn.updated_at = datetime.now(timezone.utc)
-                if file_rejected:
-                    txn.status = "failed"
-                    txn.return_code = "FILE_REJECTED"
-                else:
-                    base_fail = config.BASE_FAILURE_RATE["ach_batch_file"] * fail_mult
-                    if random.random() < min(base_fail, 0.95):
-                        txn.status = "returned"
-                        txn.return_code = random.choice(config.RETURN_CODES)
+                for txn in pending:
+                    txn.batch_id = batch_id
+                    txn.updated_at = datetime.now(timezone.utc)
+                    if file_rejected:
+                        txn.status = "failed"
+                        txn.return_code = "FILE_REJECTED"
                     else:
-                        txn.status = "posted"
-                await self.state.add_transaction(txn)
+                        base_fail = config.BASE_FAILURE_RATE[channel] * fail_mult
+                        if random.random() < min(base_fail, 0.95):
+                            txn.status = "returned"
+                            txn.return_code = random.choice(config.CHANNEL_RETURN_CODES[channel])
+                        else:
+                            txn.status = "posted"
+                    await self.state.add_transaction(txn)
 
     async def _incident_loop(self) -> None:
         all_channels = list(config.CHANNEL_WEIGHTS.keys())
@@ -135,7 +148,7 @@ class SimulationEngine:
                 if random.random() > config.INCIDENT_PROBABILITY / len(all_channels):
                     continue
                 kind = random.choice(["latency_spike", "failure_spike"])
-                if kind == "latency_spike" and channel == "ach_batch_file":
+                if kind == "latency_spike" and channel in config.BATCH_CHANNELS:
                     kind = "failure_spike"
                 if kind == "latency_spike":
                     magnitude = random.uniform(*config.INCIDENT_LATENCY_MULTIPLIER_RANGE)
