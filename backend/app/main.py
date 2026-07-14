@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import metrics
@@ -14,9 +14,11 @@ engine = SimulationEngine(state)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await state.db.start()
     engine.start()
     yield
     await engine.stop()
+    await state.db.stop()
 
 
 app = FastAPI(title="Payments Observability Platform", lifespan=lifespan)
@@ -32,6 +34,17 @@ app.add_middleware(
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/db-ping")
+async def db_ping():
+    # Deliberately separate from /api/health: this one touches the database
+    # (also serves as the target for an external keep-alive cron, since
+    # Supabase's free tier pauses a project after 7 days with no database
+    # activity) rather than being on the hot path of a routine liveness check.
+    if not state.db.enabled:
+        return {"database": "not configured"}
+    return {"database": "ok" if await state.db.ping() else "unreachable"}
 
 
 @app.get("/api/metrics/summary")
@@ -62,6 +75,17 @@ async def recent_transactions(limit: int = 50, channel: str | None = None, statu
         reverse=True,
     )
     return ordered[:limit]
+
+
+@app.get("/api/transactions/{transaction_id}")
+async def transaction_by_id(transaction_id: str):
+    # A transaction can have multiple snapshots over its lifecycle (e.g.
+    # authorized, then settled) — return the latest one, same dedup logic
+    # as recent_transactions.
+    matches = [e for e in state.transactions if e["id"] == transaction_id]
+    if not matches:
+        raise HTTPException(status_code=404, detail="transaction not found")
+    return max(matches, key=lambda e: datetime.fromisoformat(e["updated_at"]))
 
 
 @app.websocket("/ws/live")

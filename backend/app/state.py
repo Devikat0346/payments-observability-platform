@@ -2,7 +2,9 @@ import asyncio
 from collections import deque
 from typing import Deque
 
+from app import config
 from app.models import Incident, Transaction
+from app.persistence import TransactionStore
 
 RECENT_TXN_MAXLEN = 20_000
 
@@ -17,11 +19,18 @@ class AppState:
         self.active_incidents: dict[str, Incident] = {}  # channel -> Incident
         self.subscribers: set[asyncio.Queue] = set()
         self.lock = asyncio.Lock()
+        # In-memory deque above is a bounded, fast rolling window for the live
+        # dashboard's SLI/burn calculations. This is the durable side: every
+        # transaction also gets upserted into Postgres (a no-op if
+        # DATABASE_URL isn't set), so history survives restarts/redeploys and
+        # Reconciliation/Business Insights have something to query.
+        self.db = TransactionStore(config.DATABASE_URL)
 
     async def add_transaction(self, txn: Transaction) -> None:
         snapshot = txn.to_dict()
         async with self.lock:
             self.transactions.append(snapshot)
+        await self.db.enqueue(txn)
         await self.publish({"type": "transaction", "data": snapshot})
 
     async def start_incident(self, incident: Incident) -> None:

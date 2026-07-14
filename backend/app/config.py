@@ -1,4 +1,11 @@
+import os
+
 from app.models import Channel, Rail, TxnType
+
+# Postgres connection string (e.g. a Supabase project's URI). Empty by
+# default so the app runs exactly as before — in-memory only, no
+# persistence — in any environment that hasn't set one up.
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 # Relative weights for which channel originates a new transaction.
 CHANNEL_WEIGHTS: dict[Channel, float] = {
