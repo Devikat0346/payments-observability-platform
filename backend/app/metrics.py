@@ -27,6 +27,12 @@ def _channel_stats(events: list[dict]) -> dict:
     latencies = sorted(e["auth_latency_ms"] for e in events if e.get("auth_latency_ms") is not None)
     total_amount = sum(e["amount"] for e in events)
     failure_amount = sum(e["amount"] for e in events if e["status"] in TERMINAL_FAILURE)
+    # A technical failure ("failed") means the platform never returned a
+    # decision at all — distinct from "declined"/"returned", where the
+    # platform worked correctly and said no for a business reason. Only
+    # technical failures count against availability.
+    technical_failures = sum(1 for e in events if e["status"] == "failed")
+    availability = ((total - technical_failures) / total) if total else None
     return {
         "total": total,
         "success": success,
@@ -37,6 +43,8 @@ def _channel_stats(events: list[dict]) -> dict:
         "p99_latency_ms": _percentile(latencies, 0.99),
         "total_amount": round(total_amount, 2),
         "failure_amount": round(failure_amount, 2),
+        "technical_failures": technical_failures,
+        "availability": availability,
     }
 
 
@@ -70,11 +78,26 @@ def compute_summary(state: AppState) -> dict:
         actual_failure_rate = (1 - budget_stats["success_rate"]) if budget_stats["success_rate"] is not None else 0.0
         burn_pct = (actual_failure_rate / allowed_failure_rate) * 100 if allowed_failure_rate > 0 else 0.0
 
+        # Availability burn — same error-budget methodology, but measured
+        # against the five-nines availability target rather than the business
+        # approval-rate SLO. A genuinely different axis: a channel can be
+        # fully within its approval-rate SLA while still burning availability
+        # budget if the platform itself is timing out/erroring.
+        allowed_unavailability = 1 - config.AVAILABILITY_SLO_TARGET
+        actual_unavailability = (
+            (1 - budget_stats["availability"]) if budget_stats["availability"] is not None else 0.0
+        )
+        availability_burn_pct = (
+            (actual_unavailability / allowed_unavailability) * 100 if allowed_unavailability > 0 else 0.0
+        )
+
         incident = state.active_incidents.get(ch)
         health = "healthy"
         if incident:
             health = "degraded"
         if stats["success_rate"] is not None and stats["success_rate"] < slo["success_rate"] * 0.9:
+            health = "breached"
+        if stats["availability"] is not None and stats["availability"] < config.AVAILABILITY_SLO_TARGET * 0.9:
             health = "breached"
 
         # Channels whose transactions can be either credit or debit (card and ACH
@@ -101,6 +124,8 @@ def compute_summary(state: AppState) -> dict:
             "slo_success_rate": slo["success_rate"],
             "slo_latency_p99_ms": slo["latency_p99_ms"],
             "error_budget_burn_pct": round(burn_pct, 1),
+            "availability_slo_target": config.AVAILABILITY_SLO_TARGET,
+            "availability_burn_pct": round(availability_burn_pct, 1),
             "active_incident": incident.to_dict() if incident else None,
             "txn_type_breakdown": txn_type_breakdown,
         }
@@ -114,6 +139,7 @@ def compute_summary(state: AppState) -> dict:
             "rail": rail,
             **stats,
             "slo_success_rate": config.SLO_TARGETS[rail]["success_rate"],
+            "availability_slo_target": config.AVAILABILITY_SLO_TARGET,
         }
 
     # "Credit" and "debit" mean genuinely different things on the card network vs.

@@ -65,6 +65,13 @@ class Transaction:
     batch_id: Optional[str] = None
     decline_reason: Optional[str] = None
     return_code: Optional[str] = None
+    # Set only when status == "failed" — a genuine system/technical failure
+    # (timeout, internal error, whole-file rejection) where the platform did
+    # not return a decision at all. Deliberately a separate field from
+    # decline_reason/return_code: those represent the system working correctly
+    # and saying no for a business reason, which is a different concept from
+    # availability (did the system respond at all).
+    technical_failure_reason: Optional[str] = None
 
     @staticmethod
     def new(channel: Channel, txn_type: TxnType, amount: float) -> "Transaction":
@@ -95,6 +102,7 @@ class Transaction:
             "batch_id": self.batch_id,
             "decline_reason": self.decline_reason,
             "return_code": self.return_code,
+            "technical_failure_reason": self.technical_failure_reason,
         }
 
 

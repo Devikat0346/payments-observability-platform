@@ -28,6 +28,7 @@ def _event(
         "batch_id": None,
         "decline_reason": None,
         "return_code": None,
+        "technical_failure_reason": None,
     }
 
 
@@ -86,6 +87,24 @@ class TestChannelStats:
         assert stats["p50_latency_ms"] in (100.0, 200.0, 150.0)
         assert stats["total"] == 3
 
+    def test_technical_failures_are_a_subset_of_business_failures(self):
+        # A business decline (system worked, said no) and a technical failure
+        # (system never responded) are both "not a success", but availability
+        # only cares about the technical one.
+        events = [
+            _event(status="settled"),
+            _event(status="declined"),  # business — availability shouldn't count this
+            _event(status="failed"),  # technical — availability SHOULD count this
+        ]
+        stats = _channel_stats(events)
+        assert stats["failure"] == 2  # declined + failed both count against success_rate
+        assert stats["technical_failures"] == 1  # only "failed" counts against availability
+        assert stats["availability"] == 2 / 3
+
+    def test_availability_is_none_with_no_terminal_events(self):
+        stats = _channel_stats([_event(status="initiated")])
+        assert stats["availability"] is None
+
 
 class TestComputeSummary:
     def test_shape_is_well_formed_even_with_no_data(self):
@@ -107,6 +126,21 @@ class TestComputeSummary:
             assert metric["health"] in ("healthy", "degraded", "breached")
             assert metric["total"] == 0
             assert metric["success_rate"] is None
+            assert metric["availability_slo_target"] == 0.99999
+
+    def test_availability_burn_reflects_only_technical_failures_not_business_declines(self):
+        state = AppState()
+        # A pile of business declines shouldn't move the availability needle —
+        # only genuine technical failures should.
+        for _ in range(20):
+            state.transactions.append(_event(channel="pos", status="declined", seconds_ago=1))
+        summary = compute_summary(state)
+        assert summary["channels"]["pos"]["availability_burn_pct"] == 0.0
+        # ...but even a single technical failure burns a large chunk of the
+        # five-nines budget, since that budget is extremely small by design.
+        state.transactions.append(_event(channel="pos", status="failed", seconds_ago=1))
+        summary = compute_summary(state)
+        assert summary["channels"]["pos"]["availability_burn_pct"] > 0.0
 
     def test_events_outside_window_are_excluded(self):
         state = AppState()

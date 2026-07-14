@@ -132,13 +132,47 @@ SETTLE_DELAY_MS: dict[Channel, tuple[float, float]] = {
     "zelle_online": (180, 50),
 }
 
-# SLO targets per rail, used for error-budget burn calculations.
+# SLO targets per rail, used for error-budget burn calculations. This is the
+# business APPROVAL RATE target (of transactions the platform actually
+# processed, how many were approved) — legitimate declines (fraud, NSF,
+# compliance holds) count against it, since those are expected, designed-for
+# outcomes, not reliability problems.
 SLO_TARGETS: dict[Rail, dict] = {
     "CARD": {"success_rate": 0.99, "latency_p99_ms": 1500},
     "WIRE": {"success_rate": 0.985, "latency_p99_ms": 5000},
     "ACH_BATCH": {"success_rate": 0.97, "latency_p99_ms": None},
     "ZELLE": {"success_rate": 0.995, "latency_p99_ms": 2000},
 }
+
+# Platform AVAILABILITY target — "five nines" — a genuinely different thing
+# from the approval-rate SLOs above. This measures whether the platform
+# returned a decision at all (approved or declined), vs. a true system/
+# technical failure (timeout, internal error). A card declined for
+# insufficient funds is the system working correctly; a card transaction that
+# never got a response because the gateway timed out is an availability miss.
+# Uniform across every rail, since infrastructure availability is typically a
+# platform-wide commitment, not a per-rail one.
+AVAILABILITY_SLO_TARGET = 0.99999
+
+# Baseline probability a real-time transaction hits a genuine system/technical
+# failure rather than reaching a normal business decision. Deliberately much
+# rarer than BASE_FAILURE_RATE — availability failures should be rare, since
+# five nines only allows about 5 minutes of "no decision reached" per year.
+# Batch channels don't need an entry here: their technical-failure signal is
+# already BATCH_FILE_REJECT_PROB (a whole-file rejection), which is a system
+# failure, not a business one.
+SYSTEM_FAILURE_RATE: dict[Channel, float] = {
+    "pos": 0.00003,
+    "ecommerce": 0.00005,
+    "mobile_wallet": 0.00003,
+    "wire_online": 0.00002,
+    "wire_branch": 0.00002,
+    "wire_loaniq": 0.00002,
+    "wire_ivr": 0.00004,
+    "zelle_mobile": 0.00003,
+    "zelle_online": 0.00003,
+}
+SYSTEM_FAILURE_REASONS = ["gateway_timeout", "internal_error", "downstream_unavailable"]
 
 METRICS_WINDOW_SECONDS = 300  # 5-minute rolling window for SLIs
 ERROR_BUDGET_WINDOW_SECONDS = 1800  # 30-minute rolling window for error-budget burn (compressed "month")

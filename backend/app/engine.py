@@ -72,6 +72,16 @@ class SimulationEngine:
             return incident.magnitude
         return 1.0
 
+    def _availability_multiplier(self, channel: Channel) -> float:
+        incident = self.state.active_incidents.get(channel)
+        if incident and incident.kind == "failure_spike":
+            # A severe failure-rate incident correlates somewhat with real
+            # system strain, but most of it is business declines, not outages
+            # — only a fraction of the incident's magnitude bleeds into
+            # genuine technical/availability failures.
+            return 1.0 + (incident.magnitude - 1.0) * 0.25
+        return 1.0
+
     async def _generate_loop(self) -> None:
         while True:
             await asyncio.sleep(1.0 / config.GENERATION_RATE_PER_SEC)
@@ -89,11 +99,23 @@ class SimulationEngine:
         latency = _sample_latency_ms(channel) * self._latency_multiplier(channel)
         await asyncio.sleep(latency / 1000.0)
 
+        txn.auth_latency_ms = round(latency, 1)
+        txn.updated_at = datetime.now(timezone.utc)
+
+        # Checked first and separately from the business decline: a system/
+        # technical failure (the platform never returned a decision) is a
+        # different thing from a business decline (the platform worked and
+        # said no). This is what the availability metric measures.
+        system_failure_rate = config.SYSTEM_FAILURE_RATE.get(channel, 0.0) * self._availability_multiplier(channel)
+        if random.random() < system_failure_rate:
+            txn.status = "failed"
+            txn.technical_failure_reason = random.choice(config.SYSTEM_FAILURE_REASONS)
+            await self.state.add_transaction(txn)
+            return
+
         base_fail = config.BASE_FAILURE_RATE[channel] * self._failure_multiplier(channel)
         failed = random.random() < min(base_fail, 0.95)
 
-        txn.auth_latency_ms = round(latency, 1)
-        txn.updated_at = datetime.now(timezone.utc)
         if failed:
             txn.status = "declined"
             txn.decline_reason = random.choice(config.CHANNEL_DECLINE_REASONS[channel])
@@ -129,6 +151,7 @@ class SimulationEngine:
                     if file_rejected:
                         txn.status = "failed"
                         txn.return_code = "FILE_REJECTED"
+                        txn.technical_failure_reason = "file_rejected"
                     else:
                         base_fail = config.BASE_FAILURE_RATE[channel] * fail_mult
                         if random.random() < min(base_fail, 0.95):

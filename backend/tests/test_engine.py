@@ -19,6 +19,19 @@ class TestChannelWeights:
                 assert channel in config.BASE_AUTH_LATENCY_MS
                 assert channel in config.SETTLE_DELAY_MS
                 assert channel in config.CHANNEL_DECLINE_REASONS
+                # Real-time channels need a system-failure rate to simulate
+                # genuine availability misses; batch channels get theirs from
+                # BATCH_FILE_REJECT_PROB instead, so they're deliberately
+                # excluded from this config dict.
+                assert channel in config.SYSTEM_FAILURE_RATE
+
+    def test_system_failure_rate_is_far_rarer_than_business_failure_rate(self):
+        # Five nines only allows ~5 minutes/year of no-decision-reached — if
+        # this were ever close to the business decline rate, the "genuinely
+        # different thing" distinction the availability metric relies on
+        # would collapse.
+        for channel, rate in config.SYSTEM_FAILURE_RATE.items():
+            assert rate < config.BASE_FAILURE_RATE[channel] / 50
 
     def test_pick_channel_only_returns_known_channels(self):
         for _ in range(200):
