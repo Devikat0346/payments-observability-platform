@@ -57,3 +57,50 @@ def test_incidents_endpoint_returns_list():
         resp = client.get("/api/incidents")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
+
+
+def test_transaction_by_id_returns_latest_snapshot():
+    with TestClient(app) as client:
+        state.transactions.append(
+            {
+                "id": "seed-lifecycle",
+                "rail": "WIRE",
+                "channel": "wire_online",
+                "txn_type": "wire",
+                "amount": 500.0,
+                "status": "authorized",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "auth_latency_ms": 900.0,
+                "settle_latency_ms": None,
+                "batch_id": None,
+                "decline_reason": None,
+                "return_code": None,
+            }
+        )
+        state.transactions.append(
+            {
+                "id": "seed-lifecycle",
+                "rail": "WIRE",
+                "channel": "wire_online",
+                "txn_type": "wire",
+                "amount": 500.0,
+                "status": "settled",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:05+00:00",
+                "auth_latency_ms": 900.0,
+                "settle_latency_ms": 1200.0,
+                "batch_id": None,
+                "decline_reason": None,
+                "return_code": None,
+            }
+        )
+        resp = client.get("/api/transactions/seed-lifecycle")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "settled"
+
+
+def test_transaction_by_id_404_when_missing():
+    with TestClient(app) as client:
+        resp = client.get("/api/transactions/does-not-exist")
+        assert resp.status_code == 404
