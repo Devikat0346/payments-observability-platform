@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import metrics
+from app import metrics, queries
 from app.engine import SimulationEngine
 from app.state import state
 
@@ -83,9 +83,20 @@ async def transaction_by_id(transaction_id: str):
     # authorized, then settled) — return the latest one, same dedup logic
     # as recent_transactions.
     matches = [e for e in state.transactions if e["id"] == transaction_id]
-    if not matches:
-        raise HTTPException(status_code=404, detail="transaction not found")
-    return max(matches, key=lambda e: datetime.fromisoformat(e["updated_at"]))
+    if matches:
+        return max(matches, key=lambda e: datetime.fromisoformat(e["updated_at"]))
+
+    # Not in the in-memory rolling window (a few hours at most) — fall back
+    # to Postgres for anything older, if persistence is configured.
+    from_db = await queries.get_transaction_from_db(state, transaction_id)
+    if from_db is not None:
+        return from_db
+    raise HTTPException(status_code=404, detail="transaction not found")
+
+
+@app.get("/api/channels/{channel}/history")
+async def channel_history(channel: str, limit: int = 50, offset: int = 0):
+    return await queries.get_channel_history(state, channel, limit=limit, offset=offset)
 
 
 @app.websocket("/ws/live")

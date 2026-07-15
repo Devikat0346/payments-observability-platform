@@ -106,6 +106,14 @@ class TransactionStore:
             logger.exception("database ping failed")
             return False
 
+    def session(self):
+        """Public accessor for read-only queries elsewhere in the app (see
+        queries.py) — enqueue/flush stay private to this class, but ad-hoc
+        reads don't need a whole parallel session-management layer."""
+        if not self.enabled:
+            raise RuntimeError("database is not configured")
+        return self._sessionmaker()
+
     async def _flush_loop(self) -> None:
         while True:
             await asyncio.sleep(FLUSH_INTERVAL_SECONDS)
