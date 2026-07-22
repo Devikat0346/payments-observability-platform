@@ -120,7 +120,10 @@ AMOUNT_RANGE: dict[Channel, tuple[float, float]] = {
 }
 
 # How many new transactions to generate per second, on average.
-GENERATION_RATE_PER_SEC = 8.0
+# Kept low deliberately: this loop runs continuously regardless of viewers, and every
+# transaction is persisted to the external Supabase DB, which counts against Render's
+# free-tier bandwidth cap 24/7 even with zero visitors.
+GENERATION_RATE_PER_SEC = 1.5
 
 # Batch rail: how often a batch window "runs" (seconds). Compressed vs. real nightly cycles for demo purposes.
 BATCH_WINDOW_SECONDS = 25.0
